@@ -610,7 +610,7 @@ function sendMail($template, $replace_content, $to, $reply_to_mail = '')
         }
         $headers.= "MIME-Version: 1.0" . PHP_EOL;
         $headers.= "Content-Type: text/html; charset=UTF-8" . PHP_EOL;
-        $headers.= "X-Mailer: Restyaboard (0.6.9; +http://restya.com/board)" . PHP_EOL;
+        $headers.= "X-Mailer: Restyaboard (0.6.8; +http://restya.com/board)" . PHP_EOL;
         $headers.= "X-Auto-Response-Suppress: All" . PHP_EOL;
         if (is_plugin_enabled('r_sparkpost')) {
             require_once PLUGIN_PATH . DS . 'SparkPost' . DS . 'functions.php';
@@ -847,26 +847,24 @@ function copyCards($cards, $new_list_id, $name, $new_board_id = '')
                 }
             }
             // Copy card custom fields
-            if (is_plugin_enabled('r_custom_fields')) {
-                $cards_custom_fields = 'list_id, card_id, board_id, custom_field_id';
-                if (!empty($new_board_id)) {
-                    $cards_custom_fields = 'board_id, list_id, card_id, custom_field_id';
-                }
-                $qry_val_arr = array(
-                    $card_id
-                );
-                $cards_custom_field = pg_query_params($db_lnk, 'SELECT id, ' . $cards_custom_fields . ',value,is_active,value FROM cards_custom_fields WHERE card_id = $1 ORDER BY id', $qry_val_arr);
-                if ($cards_custom_field && pg_num_rows($cards_custom_field)) {
-                    while ($cards_field = pg_fetch_object($cards_custom_field)) {
-                        if (!empty($new_board_id)) {
-                            $cards_field->board_id = $new_board_id;
-                            $cards_field->list_id = $new_list_id;
-                            $cards_field->card_id = $new_card_id;
-                        }
-                        pg_execute_insert('cards_custom_fields', $cards_field);
-                        $comment = __l('##USER_NAME## added card custom field(s) to the card ##CARD_LINK## ');
-                        insertActivity($authUser['id'], $comment, 'add_card_custom_field', $foreign_ids);
+            $cards_custom_fields = 'list_id, card_id, board_id, custom_field_id';
+            if (!empty($new_board_id)) {
+                $cards_custom_fields = 'board_id, list_id, card_id, custom_field_id';
+            }
+            $qry_val_arr = array(
+                $card_id
+            );
+            $cards_custom_field = pg_query_params($db_lnk, 'SELECT id, ' . $cards_custom_fields . ',value,is_active,value FROM cards_custom_fields WHERE card_id = $1 ORDER BY id', $qry_val_arr);
+            if ($cards_custom_field && pg_num_rows($cards_custom_field)) {
+                while ($cards_field = pg_fetch_object($cards_custom_field)) {
+                    if (!empty($new_board_id)) {
+                        $cards_field->board_id = $new_board_id;
+                        $cards_field->list_id = $new_list_id;
+                        $cards_field->card_id = $new_card_id;
                     }
+                    pg_execute_insert('cards_custom_fields', $cards_field);
+                    $comment = __l('##USER_NAME## added card custom field(s) to the card ##CARD_LINK## ');
+                    insertActivity($authUser['id'], $comment, 'add_card_custom_field', $foreign_ids);
                 }
             }
         }
@@ -2108,13 +2106,11 @@ function importTaigaBoard($board = array())
                 $i+= 1;
                 $is_closed = !empty($card['is_closed']) ? 'true' : 'false';
                 $date = (!empty($card['due'])) ? $card['due_date'] : null;
-                $card['subject'] = preg_replace('~\x{00a0}~siu', ' ', utf8_decode($card['subject']));
-                $card['description'] = preg_replace('~\x{00a0}~siu', ' ', utf8_decode($card['description']));
                 $qry_val_arr = array(
                     $new_board['id'],
                     $lists[$card['status']],
-                    $card['subject'],
-                    $card['description'],
+                    utf8_decode($card['subject']) ,
+                    utf8_decode($card['description']) ,
                     $is_closed,
                     $i,
                     $date,
@@ -3433,19 +3429,6 @@ function update_query($table_name, $id, $r_resource_cmd, $r_put, $comment = '', 
                 $foreign_id = $r_put['list_id'];
             }
             $response['activity'] = insertActivity($authUser['id'], $comment, $activity_type, $foreign_ids, $revision, $foreign_id);
-            if ($activity_type == 'move_list') {
-                $qry_val_arr = array(
-                    $foreign_id
-                );
-                $result = pg_query_params($db_lnk, 'SELECT board_id,list_id,id FROM cards_listing WHERE list_id = $1 ORDER BY name ASC', $qry_val_arr);
-                while ($row = pg_fetch_assoc($result)) {
-                    $foreign_ids['board_id'] = $row['board_id'];
-                    $foreign_ids['list_id'] = $row['list_id'];
-                    $foreign_ids['card_id'] = $row['id'];
-                    $comment = '##USER_NAME## moved the card ##CARD_LINK## to different board';
-                    insertActivity($authUser['id'], $comment, 'moved_board_list_card', $foreign_ids, null, $foreign_id);
-                }
-            }
             if (!empty($response['activity']['revisions']) && trim($response['activity']['revisions']) != '') {
                 $revisions = unserialize($response['activity']['revisions']);
             }
@@ -3456,13 +3439,7 @@ function update_query($table_name, $id, $r_resource_cmd, $r_put, $comment = '', 
                         if ($key != 'is_archived' && $key != 'is_deleted' && $key != 'created' && $key != 'modified' && $key != 'is_offline' && $key != 'uuid' && $key != 'to_date' && $key != 'temp_id' && $activity_type != 'moved_card_checklist_item' && $activity_type != 'add_card_desc' && $activity_type != 'add_card_duedate' && $activity_type != 'delete_card_duedate' && $activity_type != 'add_background' && $activity_type != 'change_background' && $activity_type != 'change_visibility') {
                             $old_val = (isset($revisions['old_value'][$key])) ? $revisions['old_value'][$key] : '';
                             $new_val = (isset($revisions['new_value'][$key])) ? $revisions['new_value'][$key] : '';
-                            if ($activity_type == 'edit_comment') {
-                                if (getRevisiondifference($old_val, $new_val) !== false) {
-                                    $diff[] = getRevisiondifference($old_val, $new_val);
-                                }
-                            } else {
-                                $diff[] = nl2br(getRevisiondifference($old_val, $new_val));
-                            }
+                            $diff[] = nl2br(getRevisiondifference($old_val, $new_val));
                         }
                         if ($activity_type == 'add_card_desc' || $activity_type == 'edit_card_duedate' || $activity_type == 'add_background' || $activity_type == 'change_background' || $activity_type == 'change_visibility') {
                             $diff[] = $revisions['new_value'][$key];
@@ -3739,6 +3716,9 @@ function __l($text)
 function sendMailNotification($notification_type)
 {
     global $r_debug, $db_lnk, $_server_domain_url;
+    echo "1 ???";
+    echo "notification_type: ". $notification_type;
+    echo "\n";
     $qry_val_arr = array(
         $notification_type
     );
@@ -3783,16 +3763,19 @@ function sendMailNotification($notification_type)
     );
     $users_result = pg_query_params($db_lnk, 'SELECT users.id, users.username, users.email, users.full_name, users.last_email_notified_activity_id, users.timezone, users.language, (SELECT array_to_json(array_agg(row_to_json(d))) FROM (SELECT bs.board_id FROM board_subscribers bs WHERE bs.user_id = users.id AND bs.is_subscribed = \'t\') d) AS board_ids, (SELECT array_to_json(array_agg(row_to_json(d))) FROM (SELECT ls.list_id, l.board_id FROM list_subscribers ls, lists l WHERE ls.user_id = users.id AND l.id = ls.list_id AND ls.is_subscribed = \'t\') d) AS list_ids,(SELECT array_to_json(array_agg(row_to_json(d))) FROM (SELECT cs.card_id, c.list_id, c.board_id FROM card_subscribers cs, cards c WHERE cs.user_id = users.id AND c.id = cs.card_id AND cs.is_subscribed = \'t\') d) AS card_ids FROM users WHERE is_send_newsletter = $1', $qry_val_arr);
     while ($user = pg_fetch_assoc($users_result)) {
+        echo "2 ???";
         $board_ids = $list_ids = $card_ids = array();
         $board_arr = (!empty($user['board_ids'])) ? array_filter(json_decode($user['board_ids'], true)) : '';
         $list_arr = (!empty($user['list_ids'])) ? array_filter(json_decode($user['list_ids'], true)) : '';
         $card_arr = (!empty($user['card_ids'])) ? array_filter(json_decode($user['card_ids'], true)) : '';
         if (!empty($board_arr) && is_array($board_arr)) {
+            echo "3 ???";
             foreach ($board_arr as $boards) {
                 $board_ids[] = $boards['board_id'];
             }
         }
         if (!empty($list_arr) && is_array($list_arr)) {
+            echo "4 ???";
             foreach ($list_arr as $lists) {
                 if (!in_array($lists['board_id'], $board_ids)) {
                     $list_ids[] = $lists['list_id'];
@@ -3800,6 +3783,7 @@ function sendMailNotification($notification_type)
             }
         }
         if (!empty($card_arr) && is_array($card_arr)) {
+            echo "5 ???";
             foreach ($card_arr as $cards) {
                 if (!in_array($cards['board_id'], $board_ids) && !in_array($cards['list_id'], $list_ids)) {
                     $card_ids[] = $cards['card_id'];
@@ -4225,6 +4209,7 @@ function sendMailNotification($notification_type)
             $emailFindReplace['##NOTIFICATION_COUNT##'] = $notification_count;
             $emailFindReplace['##SINCE##'] = strftime("%I:%M %p ( %B %e, %Y)");
             $emailFindReplace['##USER_ID##'] = $user['id'];
+            echo "6 ???";
             sendMail('email_notification', $emailFindReplace, $user['email'], $reply_to_mail);
         }
     }
